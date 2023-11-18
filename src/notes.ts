@@ -46,6 +46,22 @@ export async function getAll() {
   return result;
 }
 
+export async function getPaginated({
+  limit,
+  page,
+}: {
+  limit: number,
+  page: number
+}) {
+  const res = await db
+    .select()
+    .from(notesSchema)
+    .limit(limit)
+    .offset((page-1) * limit)
+
+    return res 
+}
+
 export async function deleteNote(id: number) {
   console.log(await db.delete(notesSchema).where(eq(notesSchema.id, id)));
 }
@@ -55,6 +71,14 @@ export async function getNote(id: number): Promise<Note | undefined> {
     await db.select().from(notesSchema).where(eq(notesSchema.id, id)).limit(1)
   )[0];
 }
+
+
+export async function noteByText(text: string): Promise<Note | undefined> {
+  return (
+    await db.select().from(notesSchema).where(eq(notesSchema.text, text)).limit(1)
+  )[0];
+}
+
 
 export async function updateNote(id: number, note: Partial<Note>) {
   const found = await getNote(id);

@@ -10,8 +10,11 @@ import {
   getAll,
   getNote,
   updateNote,
+  getPaginated,
+  noteByText,
 } from "./notes";
-import { createNoteSchema, deleteNoteSchema, getSingleNoteSchema, updateNoteRequestSchema } from "./schema";
+import { createNoteSchema, deleteNoteSchema, getPaginatedNotesSchema, getSingleNoteSchema, updateNoteRequestSchema } from "./schema";
+import { get } from "http";
 
 const app = new Hono();
 
@@ -31,7 +34,7 @@ app.use(
 app.post("/", async (c) => {
 
   // CREATE
-  let data : Partial<Note> 
+  let data : Note 
 
   try {
     data = await c.req.json();
@@ -54,12 +57,12 @@ app.post("/", async (c) => {
   const validatedData = validation.data
 
 
-  let note: Note[] | undefined;
+  let note: Note | undefined;
   let success = true;
   let message = "Note Created"
 
   try {
-    note = await getAll();
+    note = await noteByText(data.text);
   } catch (error) {
     c.status(500);
     success = false;
@@ -70,7 +73,7 @@ app.post("/", async (c) => {
 
 
 
-  if (note.find((x) => x.text === data.text)) {
+  if (note) {
     return c.json({ message: "already exists" });
   }
 
@@ -89,7 +92,7 @@ app.post("/", async (c) => {
     return c.json({ success: false, message: "Error in creating the note" });
   }
 
-  note.push(dbNote);
+  
 
   return c.json({ message , note: dbNote });
 });
@@ -172,10 +175,19 @@ app.put("/:id", async (c) => {
 
   let success = true;
   let message = "Successfully retrieved";
-  let notes: Note[];
+  let notes: Note | undefined;
 
   try {
-    notes = await getAll();
+    const found = await getNote(result.data)
+
+    if(!found) {
+      c.status(404)
+      return c.json({
+        message: "note not found"
+      })
+    }
+
+    notes = found
   } catch (error) {
     c.status(500);
     success = false;
@@ -184,21 +196,14 @@ app.put("/:id", async (c) => {
     return c.json({ success, message });
   }
 
-  const foundIndex = notes.findIndex((n) => n.id === id);
-
-  if (foundIndex === -1) {
-    c.status(404);
-    return c.json({ success: false, message: "note not found" });
-  }
-
-  notes[foundIndex] = {
-    id: notes[foundIndex].id,
-    text: validatedData.text || notes[foundIndex].text,
-    date: new Date(validatedData.date || notes[foundIndex].date.getTime()),
+  notes = {
+    id: notes.id,
+    text: validatedData.text || notes.text,
+    date: new Date(validatedData.date || notes.date.getTime()),
   };
 
   try {
-    await updateNote(notes[foundIndex].id, notes[foundIndex]);
+    await updateNote(notes.id, notes);
   } catch (error) {
     console.error(error);
     c.status(500);
@@ -223,28 +228,19 @@ app.delete("/:id", async (c) => {
 
   const id = res.data
   
-  let note: Note[] | undefined;
+
   let success = true;
   let message = "Note Deleted";
 
-  try {
-    note = await getAll();
-  } catch (error) {
-    c.status(500);
-    success = false;
-    message = "Error connecting to the database.";
-    console.error("Error connecting to DB.", error);
-    return c.json({ success, message });
+  const found = getNote(res.data)
+
+  if(!found) {
+    c.status(404)
+    return c.json({
+      message: "not not found"
+    })
   }
 
-  const foundIndex = note.findIndex((n) => n.id === id);
-
-  if (foundIndex === -1) {
-    c.status(404);
-    return c.json({ message: "note not found" });
-  }
-
-  note.splice(foundIndex, 1);
 
   deleteNote(id);
 
@@ -256,8 +252,21 @@ app.get("/", async (c) => {
   let message = "Successfully retrieved";
   let notes: Note[];
 
+  const limit = parseInt(c.req.query("limit") || "10")
+  const page = parseInt(c.req.query("page") ||"1")
+
+  const result = getPaginatedNotesSchema.safeParse({limit, page})
+
+  if(!result.success) {
+    c.status(404)
+    return c.json({
+      success:false,
+      message: JSON.parse(result.error.message)[0].message
+    })
+  }
+
   try {
-    notes = await getAll();
+     notes = await getPaginated(result.data)
   } catch (error) {
     c.status(500);
     success = false;
